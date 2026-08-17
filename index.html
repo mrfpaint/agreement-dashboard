@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>SCM Agreement Dashboard</title>
+<style>
+/* ---------------------------------------------------------------- tokens */
+:root {
+  color-scheme: light;
+  --surface-1: #fcfcfb;
+  --page: #f9f9f7;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --muted: #898781;
+  --gridline: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+  --bar: #2a78d6;
+  --bar-strong: #184f95;
+  /* Status palette - fixed, never themed. Sub-3:1 steps on light are paired
+     with an icon + label so colour never carries meaning on its own. */
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --shadow: 0 1px 2px rgba(11, 11, 11, .06), 0 4px 12px rgba(11, 11, 11, .04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --page: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --gridline: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --bar: #3987e5;
+    --bar-strong: #86b6ef;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 4px 12px rgba(0, 0, 0, .35);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-1: #1a1a19;
+  --page: #0d0d0d;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --muted: #898781;
+  --gridline: #2c2c2a;
+  --baseline: #383835;
+  --border: rgba(255, 255, 255, 0.10);
+  --bar: #3987e5;
+  --bar-strong: #86b6ef;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 4px 12px rgba(0, 0, 0, .35);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text-primary);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
+a { color: var(--bar); }
+
+/* ---------------------------------------------------------------- layout */
+.wrap { max-width: 1240px; margin: 0 auto; padding: 20px 20px 64px; }
+header.bar {
+  position: sticky; top: 0; z-index: 30;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+header.bar h1 { font-size: 17px; }
+.ver { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.spacer { flex: 1 1 auto; }
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 18px;
+  margin-top: 18px;
+}
+.card > h2 { font-size: 14px; letter-spacing: .02em; text-transform: uppercase; color: var(--text-secondary); }
+.sub { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+
+/* ---------------------------------------------------------------- controls */
+button, select, input[type="search"], input[type="password"] {
+  font: inherit; color: var(--text-primary);
+  background: var(--surface-1);
+  border: 1px solid var(--baseline);
+  border-radius: 7px; padding: 7px 10px;
+}
+button { cursor: pointer; }
+button.primary { background: var(--bar); border-color: var(--bar); color: #fff; font-weight: 600; }
+button.primary:disabled { opacity: .6; cursor: progress; }
+button.ghost { border-color: var(--border); color: var(--text-secondary); }
+button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--bar); outline-offset: 2px;
+}
+.filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+.filters label { font-size: 12px; color: var(--text-secondary); display: flex; flex-direction: column; gap: 3px; }
+#q { min-width: 220px; }
+
+/* ---------------------------------------------------------------- hero + tiles */
+.hero { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.hero .fig { font-size: 48px; font-weight: 650; line-height: 1; letter-spacing: -.03em; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 16px; }
+.tile {
+  border: 1px solid var(--border); border-radius: 9px;
+  padding: 12px; background: var(--surface-1);
+  cursor: pointer; text-align: left;
+  display: flex; flex-direction: column; gap: 5px;
+  border-left: 3px solid var(--tint, var(--baseline));
+}
+.tile[aria-pressed="true"] { border-color: var(--bar); box-shadow: 0 0 0 2px var(--bar) inset; }
+.tile .n { font-size: 27px; font-weight: 650; line-height: 1; }
+.tile .lbl { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 5px; }
+/* Icon + label: the status hue is never the only cue. */
+.ico { width: 11px; height: 11px; flex: 0 0 11px; }
+
+/* ---------------------------------------------------------------- chart */
+.chartwrap { overflow-x: auto; margin-top: 10px; }
+svg.chart { display: block; min-width: 620px; width: 100%; height: 210px; }
+svg.chart text { fill: var(--muted); font-size: 11px; }
+svg.chart .val { fill: var(--text-secondary); font-weight: 600; }
+svg.chart .gl { stroke: var(--gridline); stroke-width: 1; }
+svg.chart .bl { stroke: var(--baseline); stroke-width: 1; }
+/* Bars are <path> (rounded data-end), so target the class, not the element. */
+svg.chart .b { fill: var(--bar); }
+svg.chart .b.now { fill: var(--bar-strong); }
+svg.chart g.col:hover .b { fill: var(--bar-strong); }
+svg.chart rect.hit { fill: transparent; }
+
+/* ---------------------------------------------------------------- table */
+.tablewrap { overflow-x: auto; margin-top: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--gridline); vertical-align: top; }
+th {
+  position: sticky; top: 0; background: var(--surface-1);
+  font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted); font-weight: 600; white-space: nowrap; cursor: pointer;
+}
+th[aria-sort] { color: var(--text-primary); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tbody tr:hover { background: color-mix(in srgb, var(--bar) 7%, transparent); }
+tbody tr { cursor: pointer; }
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  padding: 2px 7px; border-radius: 20px;
+  border: 1px solid var(--tint); color: var(--text-primary);
+  background: color-mix(in srgb, var(--tint) 14%, transparent);
+}
+.kind { font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
+.empty { padding: 28px; text-align: center; color: var(--muted); }
+
+/* ---------------------------------------------------------------- modal */
+dialog {
+  border: 1px solid var(--border); border-radius: 12px; padding: 0;
+  background: var(--surface-1); color: var(--text-primary);
+  max-width: 620px; width: calc(100% - 32px); box-shadow: var(--shadow);
+}
+dialog::backdrop { background: rgba(0, 0, 0, .45); }
+.dlg-head { padding: 16px 18px; border-bottom: 1px solid var(--border); display: flex; gap: 12px; align-items: flex-start; }
+.dlg-body { padding: 16px 18px; max-height: 62vh; overflow-y: auto; }
+.dlg-body h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 16px 0 6px; }
+.dlg-body h3:first-child { margin-top: 0; }
+.kv { display: grid; grid-template-columns: minmax(120px, auto) 1fr; gap: 4px 14px; font-size: 13.5px; }
+.kv dt { color: var(--text-secondary); }
+.kv dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- gate */
+#gate { max-width: 380px; margin: 12vh auto; }
+#gate .card { text-align: left; }
+#gate input { width: 100%; margin-top: 8px; }
+.msg { font-size: 13px; margin-top: 10px; min-height: 18px; }
+.msg[data-kind="error"] { color: var(--critical); }
+.banner {
+  border-left: 3px solid var(--warning); background: color-mix(in srgb, var(--warning) 10%, transparent);
+  padding: 10px 12px; border-radius: 7px; font-size: 13px; margin-top: 14px;
+}
+[hidden] { display: none !important; }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media print { header.bar, .filters, button { display: none !important; } .card { break-inside: avoid; } }
+</style>
+</head>
+<body>
+
+<!-- ============================================================== login -->
+<section id="gate">
+  <div class="card">
+    <h1 style="font-size:19px">SCM Agreement Dashboard</h1>
+    <p class="sub">MRF Corp Limited &middot; Supply Chain Management</p>
+    <form id="loginForm" style="margin-top:16px">
+      <label for="pw" style="font-size:13px;color:var(--text-secondary)">Team password</label>
+      <input id="pw" type="password" autocomplete="current-password" required>
+      <button class="primary" type="submit" style="width:100%;margin-top:12px">Sign in</button>
+    </form>
+    <p class="msg" id="loginMsg" role="status" aria-live="polite"></p>
+    <p class="ver" id="verGate"></p>
+  </div>
+</section>
+
+<!-- ============================================================== app -->
+<div id="app" hidden>
+<header class="bar">
+  <h1>SCM Agreement Dashboard</h1>
+  <span class="ver" id="ver"></span>
+  <span class="spacer"></span>
+  <span class="ver" id="freshness"></span>
+  <button class="ghost" id="themeBtn" title="Toggle light / dark">Theme</button>
+  <button class="ghost" id="refreshBtn">Refresh</button>
+  <button class="ghost" id="outBtn">Sign out</button>
+</header>
+
+<div class="wrap">
+
+  <div class="card">
+    <div class="hero">
+      <span class="fig" id="heroNeed">&mdash;</span>
+      <div>
+        <div style="font-weight:600" id="heroLine">renewals need attention</div>
+        <div class="sub" id="heroSub"></div>
+      </div>
+    </div>
+    <div class="tiles" id="tiles" role="group" aria-label="Filter by urgency"></div>
+    <div class="banner" id="missingBanner" hidden></div>
+  </div>
+
+  <div class="card">
+    <h2>Renewal load</h2>
+    <p class="sub">Agreements, bank guarantees, insurance policies and leases falling due each month. Overdue items are grouped in the first column.</p>
+    <div class="chartwrap"><svg class="chart" id="chart" role="img" aria-labelledby="chartTitle"><title id="chartTitle">Renewals due per month</title></svg></div>
+  </div>
+
+  <div class="card">
+    <h2>Register</h2>
+    <p class="sub" id="regCount"></p>
+    <div class="filters">
+      <label>Search
+        <input type="search" id="q" placeholder="Name, location, insurer&hellip;">
+      </label>
+      <label>Urgency <select id="fUrg"></select></label>
+      <label>Type <select id="fType"></select></label>
+      <label>Obligation <select id="fKind"></select></label>
+      <label>Region <select id="fRegion"></select></label>
+      <button class="ghost" id="clearBtn">Clear</button>
+      <button class="ghost" id="csvBtn">Export CSV</button>
+    </div>
+    <div class="tablewrap">
+      <table id="tbl">
+        <thead><tr id="headRow"></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <p class="empty" id="noRows" hidden>Nothing matches these filters.</p>
+  </div>
+</div>
+</div>
+
+<dialog id="dlg">
+  <div class="dlg-head">
+    <div style="flex:1">
+      <h2 id="dTitle" style="font-size:17px"></h2>
+      <p class="sub" id="dSub"></p>
+    </div>
+    <button class="ghost" id="dClose" aria-label="Close">Close</button>
+  </div>
+  <div class="dlg-body" id="dBody"></div>
+</dialog>
+
+<script>
+"use strict";
+/* ==================================================================
+   SCM Agreement Dashboard
+   Data lives in the 'SCM Agreements' Google Sheet, reached only through
+   the Cloudflare Worker below - this page holds no secrets and no data.
+   ================================================================== */
+
+const VERSION  = "v1.0";
+/* SETUP: replace with your Worker URL once deployed (SETUP.md step 3). */
+const WORKER   = "https://scm-agreements.jofran81.workers.dev";
+
+/* Renewal warning tiers, in days. Agreed 17 Aug 2026. */
+const TIERS = [
+  { key: "expired", label: "Expired",     tint: "var(--critical)", icon: "cross", test: d => d !== null && d < 0 },
+  { key: "t30",     label: "Due ≤30 days", tint: "var(--serious)",  icon: "tri",   test: d => d !== null && d >= 0 && d <= 30 },
+  { key: "t60",     label: "Due ≤60 days", tint: "var(--warning)",  icon: "diam",  test: d => d !== null && d > 30 && d <= 60 },
+  { key: "t90",     label: "Due ≤90 days", tint: "var(--muted)",    icon: "dot",   test: d => d !== null && d > 60 && d <= 90 },
+  { key: "ok",      label: "Healthy",     tint: "var(--good)",     icon: "check", test: d => d !== null && d > 90 },
+  { key: "none",    label: "No date",     tint: "var(--muted)",    icon: "quest", test: d => d === null },
+];
+
+const KIND_LABEL = {
+  Agreement: "Agreement",
+  BankGuarantee: "Bank guarantee",
+  BuildingInsurance: "Building insurance",
+  Lease: "Lease",
+};
+
+/* ---------------------------------------------------------------- state */
+let TOKEN = sessionStorage.getItem("scm_token") || "";
+let DATA = null;   // {counterparties, obligations, commercialTerms, leaseTerms}
+let ROWS = [];     // flattened obligation rows, decorated
+let sort = { col: "days", dir: 1 };
+const filters = { q: "", urgency: "", type: "", kind: "", region: "" };
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/* ---------------------------------------------------------------- dates */
+/* The sheet holds display strings, so accept what the team actually types.
+   Anything unreadable becomes null and surfaces as "No date" - never a guess. */
+function parseDate(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);            // 2026-07-31
+  if (m) return valid(+m[1], +m[2], +m[3]);
+
+  m = s.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})$/); // 31.07.2026 (day first)
+  if (m) return valid(+m[3], +m[2], +m[1]);
+
+  return null;
+}
+function valid(y, mo, d) {
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const dt = new Date(y, mo - 1, d);
+  return (dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d) ? dt : null;
+}
+function today() { const t = new Date(); t.setHours(0, 0, 0, 0); return t; }
+function daysUntil(dt) {
+  if (!dt) return null;
+  return Math.round((dt - today()) / 86400000);
+}
+const fmtDate = dt => dt
+  ? dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+  : "—";
+const fmtInr = n => (n === null || n === "" || isNaN(n))
+  ? "—" : "₹" + Number(n).toLocaleString("en-IN");
+
+function tierOf(days) { return TIERS.find(t => t.test(days)) || TIERS[5]; }
+
+/* ---------------------------------------------------------------- auth */
+async function login(password) {
+  const res = await fetch(WORKER + "/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || "Sign-in failed.");
+  TOKEN = body.token;
+  sessionStorage.setItem("scm_token", TOKEN);
+}
+
+async function loadData() {
+  const res = await fetch(WORKER + "/api/data", {
+    headers: { Authorization: "Bearer " + TOKEN },
+  });
+  if (res.status === 401) { signOut("Session expired. Please sign in again."); return null; }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || "Could not load data.");
+  return body;
+}
+
+function signOut(message) {
+  TOKEN = "";
+  sessionStorage.removeItem("scm_token");
+  $("app").hidden = true;
+  $("gate").hidden = false;
+  setMsg(message || "", message ? "error" : "");
+  $("pw").value = "";
+}
+function setMsg(text, kind) {
+  const el = $("loginMsg");
+  el.textContent = text;
+  el.dataset.kind = kind || "";
+}
+
+/* ---------------------------------------------------------------- shape */
+function build() {
+  const cpById = new Map((DATA.counterparties || []).map(c => [c.counterparty_id, c]));
+  const terms  = new Map((DATA.commercialTerms || []).map(t => [t.counterparty_id, t]));
+  const leases = new Map((DATA.leaseTerms || []).map(t => [t.counterparty_id, t]));
+
+  ROWS = (DATA.obligations || []).map(o => {
+    const cp = cpById.get(o.counterparty_id) || {};
+    const validDate = parseDate(o.valid_date);
+    const days = daysUntil(validDate);
+    return {
+      id: o.obligation_id,
+      cpId: o.counterparty_id,
+      name: cp.name || o.counterparty_id,
+      type: cp.type || "",
+      region: cp.region || "",
+      location: cp.location || "",
+      kind: o.kind,
+      kindLabel: KIND_LABEL[o.kind] || o.kind,
+      provider: o.provider || "",
+      amount: o.amount === "" || o.amount == null ? null : Number(o.amount),
+      effective: parseDate(o.effective_date),
+      valid: validDate,
+      days,
+      tier: tierOf(days),
+      dataStatus: o.data_status || "",
+      notes: o.notes || "",
+      cp, terms: terms.get(o.counterparty_id), lease: leases.get(o.counterparty_id),
+    };
+  });
+}
+
+/* ---------------------------------------------------------------- icons */
+function icon(shape, tint) {
+  const c = `style="color:${tint}"`;
+  const paths = {
+    cross: '<path d="M2 2l7 7M9 2l-7 7" stroke="currentColor" stroke-width="2.2" fill="none"/>',
+    tri:   '<path d="M5.5 1l4.5 9H1z" fill="currentColor"/>',
+    diam:  '<path d="M5.5 1l4.5 4.5L5.5 10 1 5.5z" fill="currentColor"/>',
+    dot:   '<circle cx="5.5" cy="5.5" r="3.4" fill="currentColor"/>',
+    check: '<path d="M1 6l3 3 6-7" stroke="currentColor" stroke-width="2.2" fill="none"/>',
+    quest: '<circle cx="5.5" cy="5.5" r="4.6" stroke="currentColor" stroke-width="1.6" fill="none"/><circle cx="5.5" cy="5.5" r="1.5" fill="currentColor"/>',
+  };
+  return `<svg class="ico" viewBox="0 0 11 11" aria-hidden="true" ${c}>${paths[shape] || paths.dot}</svg>`;
+}
+
+/* ---------------------------------------------------------------- render */
+function render() {
+  renderTiles();
+  renderChart();
+  renderTable();
+}
+
+function renderTiles() {
+  const counts = {};
+  TIERS.forEach(t => counts[t.key] = 0);
+  ROWS.forEach(r => counts[r.tier.key]++);
+
+  const need = counts.expired + counts.t30 + counts.t60;
+  $("heroNeed").textContent = need;
+  $("heroLine").textContent = need === 1 ? "renewal needs attention" : "renewals need attention";
+  $("heroSub").textContent =
+    `${counts.expired} already expired · ${counts.t30} due within 30 days · `
+    + `${counts.t60} within 60 · tracking ${ROWS.length} obligations across `
+    + `${new Set(ROWS.map(r => r.cpId)).size} counterparties`;
+
+  $("tiles").innerHTML = TIERS.map(t => `
+    <button class="tile" data-tier="${t.key}" style="--tint:${t.tint}"
+            aria-pressed="${filters.urgency === t.key}">
+      <span class="n">${counts[t.key]}</span>
+      <span class="lbl">${icon(t.icon, t.tint)}${esc(t.label)}</span>
+    </button>`).join("");
+
+  $("tiles").querySelectorAll(".tile").forEach(b => b.onclick = () => {
+    filters.urgency = filters.urgency === b.dataset.tier ? "" : b.dataset.tier;
+    $("fUrg").value = filters.urgency;
+    render();
+  });
+
+  const missing = counts.none;
+  const banner = $("missingBanner");
+  banner.hidden = missing === 0;
+  if (missing) {
+    banner.innerHTML = `<strong>${missing}</strong> obligation${missing === 1 ? " has" : "s have"}`
+      + ` no valid-till date in the sheet, so ${missing === 1 ? "it is" : "they are"} not counted above.`
+      + ` These are missing records, not expired ones — open the <em>No date</em> tile to see them.`;
+  }
+}
+
+/* Bar chart: renewals per month for the next 12 months, overdue bucketed
+   first. One hue - height carries the magnitude; the current month is
+   emphasised rather than given its own colour. */
+function renderChart() {
+  const svg = $("chart");
+  const W = 960, H = 210, padL = 34, padR = 8, padT = 14, padB = 40;
+  const t = today();
+
+  const buckets = [{ label: "Overdue", sub: "", n: 0, overdue: true }];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(t.getFullYear(), t.getMonth() + i, 1);
+    buckets.push({
+      label: d.toLocaleDateString("en-GB", { month: "short" }),
+      sub: d.getFullYear() === t.getFullYear() ? "" : String(d.getFullYear()).slice(2),
+      y: d.getFullYear(), m: d.getMonth(), n: 0, now: i === 0,
+    });
+  }
+  ROWS.forEach(r => {
+    if (r.days === null) return;
+    if (r.days < 0) { buckets[0].n++; return; }
+    const b = buckets.find(x => !x.overdue && x.y === r.valid.getFullYear() && x.m === r.valid.getMonth());
+    if (b) b.n++;
+  });
+
+  const max = Math.max(1, ...buckets.map(b => b.n));
+  const plotH = H - padT - padB, plotW = W - padL - padR;
+  const step = plotW / buckets.length;
+  const bw = Math.min(46, step * 0.62);
+  const y = v => padT + plotH - (v / max) * plotH;
+
+  const ticks = [0, Math.ceil(max / 2), max].filter((v, i, a) => a.indexOf(v) === i);
+  let out = ticks.map(v => `
+    <line class="${v === 0 ? "bl" : "gl"}" x1="${padL}" y1="${y(v).toFixed(1)}"
+          x2="${W - padR}" y2="${y(v).toFixed(1)}"/>
+    <text x="${padL - 7}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`).join("");
+
+  buckets.forEach((b, i) => {
+    const cx = padL + step * i + step / 2;
+    const x = cx - bw / 2;
+    const h = (b.n / max) * plotH;
+    const label = b.sub ? `${b.label} ${b.sub}` : b.label;
+    /* 4px rounded top, squared onto the baseline */
+    const bar = b.n === 0 ? "" : `<path class="b ${b.now || b.overdue ? "now" : ""}" d="
+        M${x} ${(y(0)).toFixed(1)}
+        V${(y(b.n) + 4).toFixed(1)} a4 4 0 0 1 4 -4
+        h${(bw - 8).toFixed(1)} a4 4 0 0 1 4 4
+        V${y(0).toFixed(1)} Z"/>`;
+    out += `<g class="col">
+      <rect class="hit" x="${(cx - step / 2).toFixed(1)}" y="${padT}" width="${step.toFixed(1)}" height="${plotH}"/>
+      ${bar.replace(/\s+/g, " ")}
+      ${b.n ? `<text class="val" x="${cx.toFixed(1)}" y="${(y(b.n) - 6).toFixed(1)}" text-anchor="middle">${b.n}</text>` : ""}
+      <text x="${cx.toFixed(1)}" y="${H - padB + 17}" text-anchor="middle">${esc(label)}</text>
+      ${b.overdue ? `<text x="${cx.toFixed(1)}" y="${H - padB + 31}" text-anchor="middle">now</text>` : ""}
+      <title>${esc(label)}: ${b.n} renewal${b.n === 1 ? "" : "s"} due</title>
+    </g>`;
+  });
+
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = `<title id="chartTitle">Renewals due per month</title>` + out;
+}
+
+const COLS = [
+  { key: "days",      label: "Days",        num: true },
+  { key: "tier",      label: "Status" },
+  { key: "name",      label: "Counterparty" },
+  { key: "kindLabel", label: "Obligation" },
+  { key: "valid",     label: "Valid till" },
+  { key: "provider",  label: "Bank / insurer" },
+  { key: "amount",    label: "Amount", num: true },
+  { key: "region",    label: "Region" },
+  { key: "location",  label: "Location" },
+];
+
+function visible() {
+  const q = filters.q.toLowerCase();
+  return ROWS.filter(r =>
+    (!filters.urgency || r.tier.key === filters.urgency) &&
+    (!filters.type    || r.type === filters.type) &&
+    (!filters.kind    || r.kind === filters.kind) &&
+    (!filters.region  || r.region === filters.region) &&
+    (!q || [r.name, r.location, r.region, r.provider, r.kindLabel, r.notes]
+             .join(" ").toLowerCase().includes(q))
+  );
+}
+
+function renderTable() {
+  const rows = visible().sort(cmp);
+  $("regCount").textContent = `${rows.length} of ${ROWS.length} obligations`
+    + (filters.urgency || filters.type || filters.kind || filters.region || filters.q ? " (filtered)" : "");
+
+  $("headRow").innerHTML = COLS.map(c =>
+    `<th data-col="${c.key}"${sort.col === c.key ? ` aria-sort="${sort.dir > 0 ? "ascending" : "descending"}"` : ""}
+     >${esc(c.label)}${sort.col === c.key ? (sort.dir > 0 ? " ↑" : " ↓") : ""}</th>`).join("");
+  $("headRow").querySelectorAll("th").forEach(th => th.onclick = () => {
+    const col = th.dataset.col;
+    sort = { col, dir: sort.col === col ? -sort.dir : 1 };
+    renderTable();
+  });
+
+  $("rows").innerHTML = rows.map(r => `
+    <tr tabindex="0" data-id="${esc(r.id)}">
+      <td class="num">${r.days === null ? "—" : r.days}</td>
+      <td><span class="pill" style="--tint:${r.tier.tint}">${icon(r.tier.icon, r.tier.tint)}${esc(r.tier.label)}</span></td>
+      <td>${esc(r.name)}<div class="kind">${esc(r.type)}</div></td>
+      <td class="kind">${esc(r.kindLabel)}</td>
+      <td class="num">${fmtDate(r.valid)}</td>
+      <td>${esc(r.provider) || "—"}</td>
+      <td class="num">${fmtInr(r.amount)}</td>
+      <td>${esc(r.region) || "—"}</td>
+      <td>${esc(r.location) || "—"}</td>
+    </tr>`).join("");
+
+  $("noRows").hidden = rows.length > 0;
+  $("rows").querySelectorAll("tr").forEach(tr => {
+    const open = () => openDetail(tr.dataset.id);
+    tr.onclick = open;
+    tr.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } };
+  });
+}
+
+function cmp(a, b) {
+  const c = sort.col, d = sort.dir;
+  let x = a[c], y = b[c];
+  if (c === "tier") { x = TIERS.indexOf(a.tier); y = TIERS.indexOf(b.tier); }
+  if (c === "days") {                       // nulls last, regardless of direction
+    if (x === null && y === null) return 0;
+    if (x === null) return 1;
+    if (y === null) return -1;
+  }
+  if (x instanceof Date) x = x.getTime();
+  if (y instanceof Date) y = y.getTime();
+  if (x === null || x === undefined || x === "") x = d > 0 ? Infinity : -Infinity;
+  if (y === null || y === undefined || y === "") y = d > 0 ? Infinity : -Infinity;
+  if (typeof x === "number" && typeof y === "number") return (x - y) * d;
+  return String(x).localeCompare(String(y)) * d;
+}
+
+/* ---------------------------------------------------------------- detail */
+function openDetail(id) {
+  const r = ROWS.find(x => x.id === id);
+  if (!r) return;
+  const siblings = ROWS.filter(x => x.cpId === r.cpId);
+
+  $("dTitle").textContent = r.name;
+  $("dSub").textContent = [r.type, r.location, r.region].filter(Boolean).join(" · ");
+
+  const row = (k, v) => v == null || v === "" || v === "—" ? "" : `<dt>${esc(k)}</dt><dd>${v}</dd>`;
+  const pct = v => v === "" || v == null || isNaN(v) ? "" : (Number(v) * 100).toFixed(2) + "%";
+  let html = "";
+
+  html += `<h3>Obligations</h3><dl class="kv">` + siblings.map(s =>
+    `<dt><span class="pill" style="--tint:${s.tier.tint}">${icon(s.tier.icon, s.tier.tint)}${esc(s.tier.label)}</span></dt>`
+    + `<dd><strong>${esc(s.kindLabel)}</strong> &middot; till ${fmtDate(s.valid)}`
+    + (s.days !== null ? ` (${s.days} days)` : "")
+    + (s.provider ? `<br><span class="kind">${esc(s.provider)}</span>` : "")
+    + (s.amount !== null ? `<br><span class="kind">${fmtInr(s.amount)}</span>` : "")
+    + `</dd>`).join("") + `</dl>`;
+
+  const cp = r.cp || {};
+  html += `<h3>Counterparty</h3><dl class="kv">`
+    + row("Business", esc(cp.business))
+    + row("Sq. ft", cp.sq_ft ? Number(cp.sq_ft).toLocaleString("en-IN") : "")
+    + row("Signed by", esc(cp.signed_by))
+    + row("Contact", [esc(cp.contact_person), esc(cp.contact_number)].filter(Boolean).join(" · "))
+    + row("Email", cp.email ? `<a href="mailto:${esc(cp.email)}">${esc(cp.email)}</a>` : "")
+    + row("Remarks", esc(cp.remarks))
+    + row("Sheet Sr.no", esc(cp.source_srno))
+    + `</dl>`;
+
+  const t = r.terms;
+  if (t) {
+    html += `<h3>Commission &amp; delivery</h3><dl class="kv">`
+      + row("Regular finish", pct(t.regular_finish_rate))
+      + row("Wall finish", pct(t.wall_finish_rate))
+      + row("Industrial", pct(t.industrial_rate))
+      + row("Minimum commission", t.minimum_commission ? fmtInr(t.minimum_commission) : "")
+      + row("Nil-billing commission", t.nil_billing_commission ? fmtInr(t.nil_billing_commission) : "")
+      + row("Local delivery", t.local_delivery_rate ? `₹${esc(t.local_delivery_rate)} per ltr/kg` : esc(t.local_delivery_note))
+      + row("Upcountry", t.upcountry_rate ? `₹${esc(t.upcountry_rate)} per ltr/kg` : esc(t.upcountry_note))
+      + row("Notes", esc(t.rate_notes))
+      + `</dl>`;
+  }
+
+  const l = r.lease;
+  if (l) {
+    html += `<h3>Lease</h3><dl class="kv">`
+      + row("Deposit", l.deposit_amount ? fmtInr(l.deposit_amount) : "")
+      + row("Rent", l.rent ? fmtInr(l.rent) + " per month" : "")
+      + row("Escalation", esc(l.increase_clause))
+      + `</dl>`;
+  }
+
+  if (siblings.some(s => s.dataStatus && s.dataStatus !== "ok")) {
+    html += `<h3>Data quality</h3><dl class="kv">` + siblings
+      .filter(s => s.dataStatus && s.dataStatus !== "ok")
+      .map(s => `<dt>${esc(s.kindLabel)}</dt><dd>${esc(s.dataStatus.replace(/_/g, " "))}</dd>`)
+      .join("") + `</dl>`;
+  }
+
+  $("dBody").innerHTML = html;
+  $("dlg").showModal();
+}
+
+/* ---------------------------------------------------------------- export */
+function exportCsv() {
+  const head = ["Counterparty", "Type", "Obligation", "Status", "Days", "Effective",
+                "Valid till", "Bank/Insurer", "Amount", "Region", "Location", "Notes"];
+  const cell = v => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const body = visible().sort(cmp).map(r => [
+    r.name, r.type, r.kindLabel, r.tier.label, r.days ?? "",
+    r.valid ? r.valid.toISOString().slice(0, 10) : "",
+    r.valid ? r.valid.toISOString().slice(0, 10) : "",
+    r.provider, r.amount ?? "", r.region, r.location, r.notes,
+  ].map(cell).join(","));
+
+  const blob = new Blob(["﻿" + [head.join(","), ...body].join("\r\n")],
+                        { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `scm-agreements-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ---------------------------------------------------------------- filters UI */
+function fillSelects() {
+  const opts = (el, values, allLabel) => {
+    el.innerHTML = `<option value="">${allLabel}</option>`
+      + values.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+  };
+  opts($("fUrg"), [], "All urgencies");
+  $("fUrg").innerHTML = `<option value="">All urgencies</option>`
+    + TIERS.map(t => `<option value="${t.key}">${esc(t.label)}</option>`).join("");
+  opts($("fType"),   [...new Set(ROWS.map(r => r.type))].filter(Boolean).sort(), "All types");
+  opts($("fKind"),   [...new Set(ROWS.map(r => r.kind))].filter(Boolean).sort()
+                       .map(k => k), "All obligations");
+  $("fKind").innerHTML = `<option value="">All obligations</option>`
+    + [...new Set(ROWS.map(r => r.kind))].filter(Boolean).sort()
+        .map(k => `<option value="${esc(k)}">${esc(KIND_LABEL[k] || k)}</option>`).join("");
+  opts($("fRegion"), [...new Set(ROWS.map(r => r.region))].filter(Boolean).sort(), "All regions");
+}
+
+/* ---------------------------------------------------------------- boot */
+async function start() {
+  $("gate").hidden = true;
+  $("app").hidden = false;
+  $("ver").textContent = VERSION;
+
+  const body = await loadData();
+  if (!body) return;
+  DATA = body;
+  build();
+  fillSelects();
+  render();
+
+  const read = body.readAt ? new Date(body.readAt) : null;
+  $("freshness").textContent = read
+    ? `Sheet read ${read.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}`
+      + (body.cached ? " (cached)" : "")
+    : "";
+}
+
+$("loginForm").onsubmit = async e => {
+  e.preventDefault();
+  const btn = e.target.querySelector("button");
+  btn.disabled = true;
+  setMsg("Signing in…", "");
+  try {
+    await login($("pw").value);
+    $("pw").value = "";
+    setMsg("", "");
+    await start();
+  } catch (err) {
+    setMsg(err.message || "Sign-in failed.", "error");
+    $("gate").hidden = false;
+    $("app").hidden = true;
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+$("refreshBtn").onclick = async () => {
+  $("refreshBtn").disabled = true;
+  try { await start(); } catch (err) { alert(err.message); }
+  finally { $("refreshBtn").disabled = false; }
+};
+$("outBtn").onclick = () => signOut();
+$("dClose").onclick = () => $("dlg").close();
+$("csvBtn").onclick = exportCsv;
+$("clearBtn").onclick = () => {
+  Object.keys(filters).forEach(k => filters[k] = "");
+  $("q").value = ""; ["fUrg", "fType", "fKind", "fRegion"].forEach(id => $(id).value = "");
+  render();
+};
+$("q").oninput = e => { filters.q = e.target.value; renderTable(); };
+$("fUrg").onchange = e => { filters.urgency = e.target.value; render(); };
+$("fType").onchange = e => { filters.type = e.target.value; renderTable(); };
+$("fKind").onchange = e => { filters.kind = e.target.value; renderTable(); };
+$("fRegion").onchange = e => { filters.region = e.target.value; renderTable(); };
+
+$("themeBtn").onclick = () => {
+  const dark = document.documentElement.dataset.theme === "dark"
+    || (!document.documentElement.dataset.theme
+        && matchMedia("(prefers-color-scheme: dark)").matches);
+  document.documentElement.dataset.theme = dark ? "light" : "dark";
+  localStorage.setItem("scm_theme", document.documentElement.dataset.theme);
+  if (DATA) renderChart();
+};
+const savedTheme = localStorage.getItem("scm_theme");
+if (savedTheme) document.documentElement.dataset.theme = savedTheme;
+
+$("verGate").textContent = VERSION;
+addEventListener("resize", () => { if (DATA) renderChart(); });
+
+/* An unexpired token from this tab's session skips the login screen. */
+if (TOKEN) start().catch(() => signOut());
+</script>
+</body>
+</html>
