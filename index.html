@@ -307,6 +307,18 @@ const KIND_LABEL = {
   Lease: "Lease",
 };
 
+/* How the current C&F term relates to the term in the master register
+   ('Agreement details'). Differing dates usually mean a renewal the master was
+   never updated with - history, not a conflict. */
+const LINEAGE = {
+  original_term:       { label: "Original term — no renewal recorded", tint: "var(--muted)" },
+  renewed:             { label: "Renewed",                             tint: "var(--good)" },
+  renewed_short_gap:   { label: "Renewed after a short gap",           tint: "var(--warning)" },
+  renewed_after_lapse: { label: "Renewed after cover lapsed",          tint: "var(--critical)" },
+  anomaly:             { label: "Terms overlap — needs checking",      tint: "var(--critical)" },
+  unknown:             { label: "Cannot be determined from the sheet", tint: "var(--muted)" },
+};
+
 /* ---------------------------------------------------------------- state */
 let TOKEN = sessionStorage.getItem("scm_token") || "";
 let DATA = null;   // {counterparties, obligations, commercialTerms, leaseTerms}
@@ -647,6 +659,21 @@ function openDetail(id) {
     + `</dl>`;
 
   const t = r.terms;
+  if (t && (t.original_effective || t.term_lineage)) {
+    const lin = LINEAGE[t.term_lineage] || LINEAGE.unknown;
+    const origFrom = parseDate(t.original_effective), origTo = parseDate(t.original_valid);
+    const agreement = siblings.find(s => s.kind === "Agreement");
+    html += `<h3>Term history</h3><dl class="kv">`
+      + row("Master register", origFrom || origTo
+          ? `${fmtDate(origFrom)} – ${fmtDate(origTo)}` : "not recorded")
+      + row("Currently in force", agreement
+          ? `${fmtDate(agreement.effective)} – ${fmtDate(agreement.valid)}` : "")
+      + row("Renewal", `<span class="pill" style="--tint:${lin.tint}">${esc(lin.label)}</span>`
+          + (t.renewal_gap_days !== "" && Number(t.renewal_gap_days) > 62
+              ? `<br><span class="kind">Cover lapsed for ${esc(t.renewal_gap_days)} days.</span>` : ""))
+      + row("Paperwork", esc(t.agreement_state))
+      + `</dl>`;
+  }
   if (t) {
     html += `<h3>Commission &amp; delivery</h3><dl class="kv">`
       + row("Regular finish", pct(t.regular_finish_rate))
