@@ -188,6 +188,36 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
   border-left: 3px solid var(--warning); background: color-mix(in srgb, var(--warning) 10%, transparent);
   padding: 10px 12px; border-radius: 7px; font-size: 13px; margin-top: 14px;
 }
+/* ---------------------------------------------------------------- forms */
+.frm { display: grid; gap: 12px; }
+.frm label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+.frm input, .frm select, .frm textarea {
+  font: inherit; color: var(--text-primary); background: var(--surface-1);
+  border: 1px solid var(--baseline); border-radius: 7px; padding: 7px 9px; width: 100%;
+}
+.frm textarea { min-height: 54px; resize: vertical; }
+.frm .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.frm fieldset { border: 1px solid var(--border); border-radius: 9px; padding: 12px; margin: 0; }
+.frm legend { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 0 5px; }
+.frm .hint { font-size: 11px; color: var(--muted); }
+.frm .idout { font-family: ui-monospace, monospace; font-size: 12px; color: var(--text-secondary); word-break: break-all; }
+.dlg-foot {
+  padding: 12px 18px; border-top: 1px solid var(--border);
+  display: flex; gap: 10px; justify-content: flex-end; align-items: center; flex-wrap: wrap;
+}
+.dlg-foot .spacer { flex: 1 1 auto; }
+button.danger { border-color: var(--critical); color: var(--critical); background: transparent; }
+.err { color: var(--critical); font-size: 13px; }
+.okmsg { color: var(--good); font-size: 13px; }
+.inline-edit {
+  font: inherit; font-size: 11px; padding: 1px 7px; border-radius: 20px;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-secondary); cursor: pointer; margin-left: 6px;
+}
+.rolechip {
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 20px;
+  border: 1px solid var(--border); color: var(--text-secondary);
+}
 [hidden] { display: none !important; }
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 @media print { header.bar, .filters, button { display: none !important; } .card { break-inside: avoid; } }
@@ -217,6 +247,8 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
   <span class="ver" id="ver"></span>
   <span class="spacer"></span>
   <span class="ver" id="freshness"></span>
+  <span class="rolechip" id="roleChip" hidden></span>
+  <button class="primary" id="addBtn" hidden>+ Add counterparty</button>
   <button class="ghost" id="themeBtn" title="Toggle light / dark">Theme</button>
   <button class="ghost" id="refreshBtn">Refresh</button>
   <button class="ghost" id="outBtn">Sign out</button>
@@ -267,6 +299,22 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 </div>
 </div>
 
+<dialog id="formDlg">
+  <div class="dlg-head">
+    <div style="flex:1">
+      <h2 id="fTitle" style="font-size:17px"></h2>
+      <p class="sub" id="fSub"></p>
+    </div>
+  </div>
+  <div class="dlg-body"><form id="frm" class="frm"></form></div>
+  <div class="dlg-foot">
+    <span class="err" id="fErr"></span>
+    <span class="spacer"></span>
+    <button class="ghost" id="fCancel" type="button">Cancel</button>
+    <button class="primary" id="fSave" type="button">Save</button>
+  </div>
+</dialog>
+
 <dialog id="dlg">
   <div class="dlg-head">
     <div style="flex:1">
@@ -276,6 +324,11 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
     <button class="ghost" id="dClose" aria-label="Close">Close</button>
   </div>
   <div class="dlg-body" id="dBody"></div>
+  <div class="dlg-foot" id="dFoot" hidden>
+    <button class="danger" id="dArchive" type="button">Archive&hellip;</button>
+    <span class="spacer"></span>
+    <button class="ghost" id="dEditCp" type="button">Edit details</button>
+  </div>
 </dialog>
 
 <script>
@@ -286,7 +339,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
    the Cloudflare Worker below - this page holds no secrets and no data.
    ================================================================== */
 
-const VERSION  = "v1.0";
+const VERSION  = "v1.1";
 /* SETUP: replace with your Worker URL once deployed (SETUP.md step 3). */
 const WORKER   = "https://scm-agreements.jofran81.workers.dev";
 
@@ -321,6 +374,8 @@ const LINEAGE = {
 
 /* ---------------------------------------------------------------- state */
 let TOKEN = sessionStorage.getItem("scm_token") || "";
+let ROLE  = sessionStorage.getItem("scm_role") || "viewer";
+const isAdmin = () => ROLE === "admin";
 let DATA = null;   // {counterparties, obligations, commercialTerms, leaseTerms}
 let ROWS = [];     // flattened obligation rows, decorated
 let sort = { col: "days", dir: 1 };
@@ -355,6 +410,12 @@ function daysUntil(dt) {
   if (!dt) return null;
   return Math.round((dt - today()) / 86400000);
 }
+/* toISOString() converts to UTC first, so in a +05:30 timezone a date-only value
+   comes out one day earlier. Format from local parts instead - this feeds the edit
+   form and the CSV, where a silent one-day shift would corrupt real dates. */
+const isoLocal = dt => dt
+  ? `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`
+  : "";
 const fmtDate = dt => dt
   ? dt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
   : "—";
@@ -373,7 +434,9 @@ async function login(password) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || "Sign-in failed.");
   TOKEN = body.token;
+  ROLE = body.role === "admin" ? "admin" : "viewer";
   sessionStorage.setItem("scm_token", TOKEN);
+  sessionStorage.setItem("scm_role", ROLE);
 }
 
 async function loadData() {
@@ -388,7 +451,9 @@ async function loadData() {
 
 function signOut(message) {
   TOKEN = "";
+  ROLE = "viewer";
   sessionStorage.removeItem("scm_token");
+  sessionStorage.removeItem("scm_role");
   $("app").hidden = true;
   $("gate").hidden = false;
   setMsg(message || "", message ? "error" : "");
@@ -400,6 +465,43 @@ function setMsg(text, kind) {
   el.dataset.kind = kind || "";
 }
 
+/* ---------------------------------------------------------------- ids */
+/* Mirrors slug() in tools/normalize.py, so ids generated here match the ones the
+   Excel import produced. Nobody types an id by hand - a typo would orphan the row. */
+function slug(...parts) {
+  return parts.filter(Boolean).join("-").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+}
+const TYPE_PREFIX = { "C&F Agent": "cf", "Transporter": "transporter", "3PL": "3pl", "RSO Office": "rso" };
+/* C&F ids carry the location because one agent can hold several sites; RSO ids are
+   keyed on the office city. */
+function makeCpId(type, name, location) {
+  const p = TYPE_PREFIX[type] || "cp";
+  if (type === "C&F Agent") return slug(p, name, location);
+  if (type === "RSO Office") return slug(p, location || name);
+  return slug(p, name);
+}
+/* Which obligations each type normally carries. */
+const TYPE_KINDS = {
+  "C&F Agent":   ["Agreement", "BankGuarantee", "BuildingInsurance"],
+  "Transporter": ["Agreement"],
+  "3PL":         ["Agreement", "BuildingInsurance"],
+  "RSO Office":  ["Lease", "BuildingInsurance"],
+};
+
+/* ---------------------------------------------------------------- write api */
+async function api(path, payload) {
+  const res = await fetch(WORKER + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (res.status === 401) { signOut("Session expired. Please sign in again."); throw new Error("session expired"); }
+  if (!res.ok) throw new Error(body.error || "The change could not be saved.");
+  return body;
+}
+
 /* ---------------------------------------------------------------- shape */
 function build() {
   const cpById = new Map((DATA.counterparties || []).map(c => [c.counterparty_id, c]));
@@ -408,6 +510,10 @@ function build() {
 
   ROWS = (DATA.obligations || []).map(o => {
     const cp = cpById.get(o.counterparty_id) || {};
+    /* Hand-edited sheets get typos. An obligation whose counterparty_id matches
+       nothing in the Counterparties tab would otherwise quietly display its raw
+       id as a name, so it is called out in the warnings banner instead. */
+    const orphan = !cpById.has(o.counterparty_id);
     const validDate = parseDate(o.valid_date);
     const days = daysUntil(validDate);
     return {
@@ -426,6 +532,7 @@ function build() {
       days,
       tier: tierOf(days),
       dataStatus: o.data_status || "",
+      orphan,
       notes: o.notes || "",
       cp, terms: terms.get(o.counterparty_id), lease: leases.get(o.counterparty_id),
     };
@@ -479,14 +586,25 @@ function renderTiles() {
     render();
   });
 
-  const missing = counts.none;
-  const banner = $("missingBanner");
-  banner.hidden = missing === 0;
-  if (missing) {
-    banner.innerHTML = `<strong>${missing}</strong> obligation${missing === 1 ? " has" : "s have"}`
-      + ` no valid-till date in the sheet, so ${missing === 1 ? "it is" : "they are"} not counted above.`
-      + ` These are missing records, not expired ones — open the <em>No date</em> tile to see them.`;
+  const warnings = [];
+  if (counts.none) {
+    warnings.push(`<strong>${counts.none}</strong> obligation${counts.none === 1 ? " has" : "s have"}`
+      + ` no valid-till date in the sheet, so ${counts.none === 1 ? "it is" : "they are"} not counted above.`
+      + ` These are missing records, not expired ones — open the <em>No date</em> tile to see them.`);
   }
+  const orphans = ROWS.filter(r => r.orphan);
+  if (orphans.length) {
+    const ids = [...new Set(orphans.map(r => r.cpId))];
+    warnings.push(`<strong>${orphans.length}</strong> obligation${orphans.length === 1 ? "" : "s"}`
+      + ` ${orphans.length === 1 ? "points" : "point"} at a <code>counterparty_id</code>`
+      + ` that is not in the Counterparties tab,`
+      + ` so ${orphans.length === 1 ? "its" : "their"} name, region and location are blank.`
+      + ` Check these for a typo: ${ids.slice(0, 4).map(esc).join(", ")}`
+      + `${ids.length > 4 ? ` and ${ids.length - 4} more` : ""}.`);
+  }
+  const banner = $("missingBanner");
+  banner.hidden = warnings.length === 0;
+  banner.innerHTML = warnings.map(w => `<div>${w}</div>`).join("");
 }
 
 /* Bar chart: renewals per month for the next 12 months, overdue bucketed
@@ -645,6 +763,7 @@ function openDetail(id) {
     + (s.days !== null ? ` (${s.days} days)` : "")
     + (s.provider ? `<br><span class="kind">${esc(s.provider)}</span>` : "")
     + (s.amount !== null ? `<br><span class="kind">${fmtInr(s.amount)}</span>` : "")
+    + (isAdmin() ? `<button class="inline-edit" data-edit="${esc(s.id)}">Edit</button>` : "")
     + `</dd>`).join("") + `</dl>`;
 
   const cp = r.cp || {};
@@ -704,7 +823,337 @@ function openDetail(id) {
   }
 
   $("dBody").innerHTML = html;
+  $("dFoot").hidden = !isAdmin();
+  if (isAdmin()) {
+    $("dEditCp").onclick = () => openEditCounterparty(r.cpId);
+    $("dArchive").onclick = () => archiveCounterparty(r.cpId);
+    $("dBody").querySelectorAll("[data-edit]").forEach(b => {
+      b.onclick = () => openEditObligation(b.dataset.edit);
+    });
+  }
   $("dlg").showModal();
+}
+
+/* ---------------------------------------------------------------- forms */
+/* Every write goes through here: build the fields, collect + validate on save,
+   then re-read from the sheet so the screen always reflects what was stored
+   rather than what we hoped was stored. */
+function openForm({ title, sub, html, onSave }) {
+  $("fTitle").textContent = title;
+  $("fSub").textContent = sub || "";
+  $("frm").innerHTML = html;
+  $("fErr").textContent = "";
+  const dlg = $("formDlg");
+  $("fSave").onclick = async () => {
+    $("fErr").textContent = "";
+    $("fSave").disabled = true;
+    try {
+      await onSave();
+      dlg.close();
+      await start();
+    } catch (err) {
+      $("fErr").textContent = err.message || "Could not save.";
+    } finally {
+      $("fSave").disabled = false;
+    }
+  };
+  dlg.showModal();
+}
+$("fCancel").onclick = () => $("formDlg").close();
+
+const val = id => ($(id)?.value ?? "").trim();
+
+function asDate(id, label) {
+  const v = val(id);
+  if (!v) return "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error(`${label} is not a valid date.`);
+  return v;
+}
+function asNumber(id, label) {
+  const v = val(id).replace(/[,\s₹]/g, "");
+  if (!v) return "";
+  const n = Number(v);
+  if (!isFinite(n)) throw new Error(`${label} must be a number.`);
+  return n;
+}
+/* The sheet stores rates as fractions (0.0175). The form asks for a percentage,
+   so nobody can accidentally store 1.75 meaning 175%. */
+function asFraction(id, label) {
+  const v = val(id);
+  if (!v) return "";
+  const n = Number(v);
+  if (!isFinite(n)) throw new Error(`${label} must be a number.`);
+  if (n < 0 || n > 100) throw new Error(`${label} should be a percentage, for example 1.75.`);
+  return Number((n / 100).toFixed(6));
+}
+function checkTerm(eff, valid, label) {
+  if (eff && valid && valid < eff) {
+    throw new Error(`${label}: the valid-till date is before the start date.`);
+  }
+}
+const dateField = (id, label, value) =>
+  `<label for="${id}">${label}<input type="date" id="${id}" value="${esc(value || "")}"></label>`;
+const textField = (id, label, value, extra = "") =>
+  `<label for="${id}">${label}<input type="text" id="${id}" value="${esc(value ?? "")}" ${extra}></label>`;
+
+/* ---- edit one obligation (the renewal case) */
+function openEditObligation(id) {
+  const r = ROWS.find(x => x.id === id);
+  if (!r) return;
+  $("dlg").close();
+
+  openForm({
+    title: `Edit ${r.kindLabel.toLowerCase()}`,
+    sub: `${r.name}${r.location ? " · " + r.location : ""}`,
+    html: `<div class="two">
+        ${dateField("e_eff", "Start of term", isoLocal(r.effective))}
+        ${dateField("e_val", "Valid till", isoLocal(r.valid))}
+      </div>
+      ${textField("e_prov", r.kind === "BankGuarantee" ? "Bank" : "Insurer / provider", r.provider)}
+      ${textField("e_amt", "Amount (₹)", r.amount ?? "", 'inputmode="decimal"')}
+      <label for="e_notes">Notes<textarea id="e_notes">${esc(r.notes)}</textarea></label>
+      <p class="hint">Renewing? Set both dates to the new term. The original term stays
+      recorded separately, so the renewal history is kept.</p>`,
+    onSave: async () => {
+      const eff = asDate("e_eff", "Start of term");
+      const valid = asDate("e_val", "Valid till");
+      checkTerm(eff, valid, r.kindLabel);
+      await api("/api/update", {
+        tab: "Obligations", idField: "obligation_id", idValue: r.id,
+        updates: {
+          effective_date: eff, valid_date: valid,
+          provider: val("e_prov"), amount: asNumber("e_amt", "Amount"),
+          notes: val("e_notes"),
+        },
+      });
+    },
+  });
+}
+
+/* ---- edit the counterparty's own details */
+function openEditCounterparty(cpId) {
+  const r = ROWS.find(x => x.cpId === cpId);
+  if (!r) return;
+  const cp = r.cp || {};
+  $("dlg").close();
+
+  openForm({
+    title: "Edit details",
+    sub: r.name,
+    html: `${textField("c_name", "Name", cp.name)}
+      <div class="two">
+        ${textField("c_region", "Region", cp.region)}
+        ${textField("c_location", "Location", cp.location)}
+      </div>
+      ${textField("c_business", "Business", cp.business)}
+      <div class="two">
+        ${textField("c_person", "Contact person", cp.contact_person)}
+        ${textField("c_number", "Contact number", cp.contact_number, 'inputmode="numeric"')}
+      </div>
+      ${textField("c_email", "Email", cp.email)}
+      <div class="two">
+        ${textField("c_sqft", "Sq. ft", cp.sq_ft, 'inputmode="numeric"')}
+        ${textField("c_signed", "Signed by", cp.signed_by)}
+      </div>
+      <label for="c_remarks">Remarks<textarea id="c_remarks">${esc(cp.remarks || "")}</textarea></label>
+      <p class="hint">The id stays as it is — changing it would break the link to this
+      counterparty's obligations.</p>`,
+    onSave: async () => {
+      if (!val("c_name")) throw new Error("Name cannot be empty.");
+      await api("/api/update", {
+        tab: "Counterparties", idField: "counterparty_id", idValue: cpId,
+        updates: {
+          name: val("c_name"), region: val("c_region"), location: val("c_location"),
+          business: val("c_business"), contact_person: val("c_person"),
+          contact_number: val("c_number"), email: val("c_email"),
+          sq_ft: asNumber("c_sqft", "Sq. ft"), signed_by: val("c_signed"),
+          remarks: val("c_remarks"),
+        },
+      });
+    },
+  });
+}
+
+/* ---- add a whole new counterparty, with its obligations and terms */
+function obligationFieldsFor(type) {
+  return (TYPE_KINDS[type] || ["Agreement"]).map(kind => `
+    <fieldset>
+      <legend>${esc(KIND_LABEL[kind])}</legend>
+      <label style="flex-direction:row;align-items:center;gap:7px">
+        <input type="checkbox" id="k_${kind}" checked style="width:auto">
+        <span>Track this</span>
+      </label>
+      <div class="two" style="margin-top:8px">
+        ${dateField(`k_${kind}_eff`, "Start of term", "")}
+        ${dateField(`k_${kind}_val`, "Valid till", "")}
+      </div>
+      ${kind === "Agreement" ? "" : textField(`k_${kind}_prov`,
+          kind === "BankGuarantee" ? "Bank" : "Insurer", "")}
+      ${kind === "BuildingInsurance" ? "" : textField(`k_${kind}_amt`, "Amount (₹)", "", 'inputmode="decimal"')}
+    </fieldset>`).join("");
+}
+
+function openAddForm() {
+  const regions = [...new Set(ROWS.map(r => r.region))].filter(Boolean).sort();
+  const types = Object.keys(TYPE_PREFIX);
+
+  openForm({
+    title: "Add counterparty",
+    sub: "Creates the counterparty, its obligations and its terms in one go.",
+    html: `
+      <label for="a_type">Type
+        <select id="a_type">${types.map(t => `<option>${esc(t)}</option>`).join("")}</select>
+      </label>
+      ${textField("a_name", "Name", "")}
+      <div class="two">
+        ${textField("a_location", "Location / city", "")}
+        <label for="a_region">Region
+          <input type="text" id="a_region" list="a_regions">
+          <datalist id="a_regions">${regions.map(r => `<option>${esc(r)}</option>`).join("")}</datalist>
+        </label>
+      </div>
+      <p class="hint">Generated id: <span class="idout" id="a_id">—</span></p>
+      <fieldset>
+        <legend>Contact</legend>
+        <div class="two">
+          ${textField("a_person", "Contact person", "")}
+          ${textField("a_number", "Contact number", "", 'inputmode="numeric"')}
+        </div>
+        ${textField("a_email", "Email", "")}
+        <div class="two" style="margin-top:12px">
+          ${textField("a_sqft", "Sq. ft", "", 'inputmode="numeric"')}
+          ${textField("a_signed", "Signed by", "")}
+        </div>
+      </fieldset>
+      <div id="a_obs"></div>
+      <div id="a_terms"></div>`,
+    onSave: async () => {
+      const type = val("a_type"), name = val("a_name"), location = val("a_location");
+      if (!name) throw new Error("Name is required.");
+      if ((type === "C&F Agent" || type === "RSO Office") && !location) {
+        throw new Error(`Location is required for a ${type}.`);
+      }
+      const cpId = makeCpId(type, name, location);
+      if (!cpId) throw new Error("Could not build an id from that name.");
+      if ((DATA.counterparties || []).some(c => c.counterparty_id === cpId)) {
+        throw new Error(`A counterparty with the id ${cpId} already exists.`);
+      }
+
+      const writes = [{
+        tab: "Counterparties",
+        row: {
+          counterparty_id: cpId, type, name,
+          business: type === "C&F Agent" ? "C&F Agent"
+                  : type === "RSO Office" ? "Office Lease" : type,
+          region: val("a_region"), location,
+          sq_ft: asNumber("a_sqft", "Sq. ft"),
+          contact_person: val("a_person"), contact_number: val("a_number"),
+          email: val("a_email"), signed_by: val("a_signed"),
+          remarks: "", source_srno: "",
+        },
+      }];
+
+      let any = false;
+      for (const kind of (TYPE_KINDS[type] || [])) {
+        if (!$(`k_${kind}`)?.checked) continue;
+        const eff = asDate(`k_${kind}_eff`, `${KIND_LABEL[kind]} start`);
+        const valid = asDate(`k_${kind}_val`, `${KIND_LABEL[kind]} valid till`);
+        checkTerm(eff, valid, KIND_LABEL[kind]);
+        if (!valid) throw new Error(`${KIND_LABEL[kind]}: a valid-till date is needed, or untick it.`);
+        any = true;
+        writes.push({
+          tab: "Obligations",
+          row: {
+            obligation_id: `${cpId}--${kind}`, counterparty_id: cpId, kind,
+            provider: val(`k_${kind}_prov`), amount: asNumber(`k_${kind}_amt`, "Amount"),
+            effective_date: eff, valid_date: valid, data_status: "", notes: "",
+          },
+        });
+      }
+      if (!any) throw new Error("Tick at least one obligation to track.");
+
+      if (type === "C&F Agent") {
+        writes.push({
+          tab: "CommercialTerms",
+          row: {
+            counterparty_id: cpId,
+            regular_finish_rate: asFraction("t_reg", "Regular finish"),
+            wall_finish_rate: asFraction("t_wall", "Wall finish"),
+            industrial_rate: asFraction("t_ind", "Industrial"),
+            minimum_commission: asNumber("t_min", "Minimum commission"),
+            nil_billing_commission: asNumber("t_nil", "Nil-billing commission"),
+            local_delivery_rate: asNumber("t_local", "Local delivery"),
+            local_delivery_note: "", upcountry_rate: asNumber("t_upc", "Upcountry"),
+            upcountry_note: "", rate_notes: "", agreement_state: "agreement done",
+            /* A brand-new agreement IS its original term. */
+            original_effective: asDate("k_Agreement_eff", "Agreement start"),
+            original_valid: asDate("k_Agreement_val", "Agreement valid till"),
+            term_lineage: "original_term", renewal_gap_days: "",
+          },
+        });
+      } else if (type === "RSO Office") {
+        writes.push({
+          tab: "LeaseTerms",
+          row: {
+            counterparty_id: cpId,
+            deposit_amount: asNumber("l_dep", "Deposit"),
+            rent: asNumber("l_rent", "Rent"),
+            increase_clause: val("l_inc"),
+          },
+        });
+      }
+
+      await api("/api/create", { writes });
+    },
+  });
+
+  /* Live id preview, plus obligation and terms sections that follow the chosen type. */
+  const refresh = () => {
+    const type = val("a_type");
+    $("a_id").textContent = makeCpId(type, val("a_name"), val("a_location")) || "—";
+    $("a_obs").innerHTML = obligationFieldsFor(type);
+    $("a_terms").innerHTML =
+      type === "C&F Agent" ? `<fieldset><legend>Commission &amp; delivery</legend>
+          <div class="two">${textField("t_reg", "Regular finish %", "1.75", 'inputmode="decimal"')}
+          ${textField("t_wall", "Wall finish %", "1.25", 'inputmode="decimal"')}</div>
+          <div class="two" style="margin-top:12px">${textField("t_ind", "Industrial %", "1.00", 'inputmode="decimal"')}
+          ${textField("t_min", "Minimum commission (₹)", "", 'inputmode="decimal"')}</div>
+          <div class="two" style="margin-top:12px">${textField("t_nil", "Nil-billing commission (₹)", "", 'inputmode="decimal"')}
+          ${textField("t_local", "Local delivery ₹/ltr", "", 'inputmode="decimal"')}</div>
+          <div style="margin-top:12px">${textField("t_upc", "Upcountry ₹/ltr", "", 'inputmode="decimal"')}</div>
+          <p class="hint">Enter percentages as you say them — 1.75 means 1.75%.</p>
+        </fieldset>`
+      : type === "RSO Office" ? `<fieldset><legend>Lease</legend>
+          <div class="two">${textField("l_dep", "Deposit (₹)", "", 'inputmode="decimal"')}
+          ${textField("l_rent", "Monthly rent (₹)", "", 'inputmode="decimal"')}</div>
+          <div style="margin-top:12px">${textField("l_inc", "Escalation clause", "")}</div>
+        </fieldset>`
+      : "";
+  };
+  ["a_type", "a_name", "a_location"].forEach(id => {
+    $(id).addEventListener("input", refresh);
+    $(id).addEventListener("change", refresh);
+  });
+  refresh();
+}
+
+/* ---- archive (soft delete: rows move to an Archive tab, never destroyed) */
+async function archiveCounterparty(cpId) {
+  const r = ROWS.find(x => x.cpId === cpId);
+  if (!r) return;
+  const n = ROWS.filter(x => x.cpId === cpId).length;
+  const ok = confirm(
+    `Archive ${r.name}?\n\nThis moves the counterparty and its ${n} obligation`
+    + `${n === 1 ? "" : "s"} to an Archive tab in the sheet. Nothing is deleted and it `
+    + `can be restored by hand, but it will no longer appear here.`);
+  if (!ok) return;
+  $("dlg").close();
+  try {
+    await api("/api/archive", { counterpartyId: cpId });
+    await start();
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 /* ---------------------------------------------------------------- export */
@@ -717,8 +1166,8 @@ function exportCsv() {
   };
   const body = visible().sort(cmp).map(r => [
     r.name, r.type, r.kindLabel, r.tier.label, r.days ?? "",
-    r.valid ? r.valid.toISOString().slice(0, 10) : "",
-    r.valid ? r.valid.toISOString().slice(0, 10) : "",
+    isoLocal(r.effective),
+    isoLocal(r.valid),
     r.provider, r.amount ?? "", r.region, r.location, r.notes,
   ].map(cell).join(","));
 
@@ -758,6 +1207,15 @@ async function start() {
   const body = await loadData();
   if (!body) return;
   DATA = body;
+  /* The Worker is the authority on role - it echoes it with the data, so a stale
+     sessionStorage value cannot grant edit rights the token does not carry. */
+  if (body.role) {
+    ROLE = body.role === "admin" ? "admin" : "viewer";
+    sessionStorage.setItem("scm_role", ROLE);
+  }
+  $("roleChip").hidden = false;
+  $("roleChip").textContent = isAdmin() ? "Admin" : "View only";
+  $("addBtn").hidden = !isAdmin();
   build();
   fillSelects();
   render();
@@ -796,6 +1254,7 @@ $("refreshBtn").onclick = async () => {
 $("outBtn").onclick = () => signOut();
 $("dClose").onclick = () => $("dlg").close();
 $("csvBtn").onclick = exportCsv;
+$("addBtn").onclick = openAddForm;
 $("clearBtn").onclick = () => {
   Object.keys(filters).forEach(k => filters[k] = "");
   $("q").value = ""; ["fUrg", "fType", "fKind", "fRegion"].forEach(id => $(id).value = "");
