@@ -673,12 +673,16 @@ const COLS = [
   { key: "tier",      label: "Status" },
   { key: "name",      label: "Counterparty" },
   { key: "kindLabel", label: "Obligation" },
-  { key: "valid",     label: "Valid till" },
+  { key: "effective", label: "From",        num: true },
+  { key: "valid",     label: "Valid till",  num: true },
   { key: "provider",  label: "Bank / insurer" },
   { key: "amount",    label: "Amount", num: true },
   { key: "region",    label: "Region" },
   { key: "location",  label: "Location" },
+  /* Admin-only, and not sortable - it holds a button, not a value. */
+  { key: "_act",      label: "",            noSort: true, adminOnly: true },
 ];
+const activeCols = () => COLS.filter(c => !c.adminOnly || isAdmin());
 
 function visible() {
   const q = filters.q.toLowerCase();
@@ -697,13 +701,17 @@ function renderTable() {
   $("regCount").textContent = `${rows.length} of ${ROWS.length} obligations`
     + (filters.urgency || filters.type || filters.kind || filters.region || filters.q ? " (filtered)" : "");
 
-  $("headRow").innerHTML = COLS.map(c =>
-    `<th data-col="${c.key}"${sort.col === c.key ? ` aria-sort="${sort.dir > 0 ? "ascending" : "descending"}"` : ""}
+  $("headRow").innerHTML = activeCols().map(c =>
+    `<th data-col="${c.key}"${c.noSort ? ' style="cursor:default"' : ""}${
+      sort.col === c.key ? ` aria-sort="${sort.dir > 0 ? "ascending" : "descending"}"` : ""}
      >${esc(c.label)}${sort.col === c.key ? (sort.dir > 0 ? " ↑" : " ↓") : ""}</th>`).join("");
-  $("headRow").querySelectorAll("th").forEach(th => th.onclick = () => {
+  $("headRow").querySelectorAll("th").forEach(th => {
     const col = th.dataset.col;
-    sort = { col, dir: sort.col === col ? -sort.dir : 1 };
-    renderTable();
+    if (COLS.find(c => c.key === col)?.noSort) return;
+    th.onclick = () => {
+      sort = { col, dir: sort.col === col ? -sort.dir : 1 };
+      renderTable();
+    };
   });
 
   $("rows").innerHTML = rows.map(r => `
@@ -712,11 +720,13 @@ function renderTable() {
       <td><span class="pill" style="--tint:${r.tier.tint}">${icon(r.tier.icon, r.tier.tint)}${esc(r.tier.label)}</span></td>
       <td>${esc(r.name)}<div class="kind">${esc(r.type)}</div></td>
       <td class="kind">${esc(r.kindLabel)}</td>
+      <td class="num">${fmtDate(r.effective)}</td>
       <td class="num">${fmtDate(r.valid)}</td>
       <td>${esc(r.provider) || "—"}</td>
       <td class="num">${fmtInr(r.amount)}</td>
       <td>${esc(r.region) || "—"}</td>
       <td>${esc(r.location) || "—"}</td>
+      ${isAdmin() ? `<td><button class="inline-edit" data-rowedit="${esc(r.id)}">Edit dates</button></td>` : ""}
     </tr>`).join("");
 
   $("noRows").hidden = rows.length > 0;
@@ -724,6 +734,12 @@ function renderTable() {
     const open = () => openDetail(tr.dataset.id);
     tr.onclick = open;
     tr.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } };
+  });
+  $("rows").querySelectorAll("[data-rowedit]").forEach(b => {
+    b.onclick = e => {
+      e.stopPropagation();          // don't also open the detail card behind the form
+      openEditObligation(b.dataset.rowedit);
+    };
   });
 }
 
